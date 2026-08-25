@@ -4,42 +4,31 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 from groq import Groq
+from aiohttp import web
 
 # --------------------------------------------------
 # 1. Environment & Setup
 # --------------------------------------------------
-print("🔄 Loading environment variables...")
 load_dotenv()
 
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")  # Nosniy Token
+SG_TOKEN = os.getenv("SG_TOKEN")            # SenseiWarrior Token
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+PORT = int(os.getenv("PORT", 8080))         # Default port for Render health checks
 
-if not DISCORD_TOKEN:
-    print("❌ Error: Missing DISCORD_TOKEN in .env file!")
+if not DISCORD_TOKEN or not SG_TOKEN or not GROQ_API_KEY:
     exit(1)
-
-if not GROQ_API_KEY:
-    print("❌ Error: Missing GROQ_API_KEY in .env file!")
-    exit(1)
-
-# Initialize Discord Bot
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Initialize Groq Client
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-# --------------------------------------------------
-# 2. AI Helper Function
-# --------------------------------------------------
-def ask_groq_ai(prompt: str) -> str:
-    """Fetch fast, keyless-tier AI responses using Groq."""
+def ask_groq_ai(prompt: str, bot_identity: str) -> str:
+    """Fetch fast AI responses using Groq."""
     chat_completion = groq_client.chat.completions.create(
         messages=[
             {
                 "role": "system",
-                "content": "You are Nosniy, a helpful and friendly Discord AI assistant."
+                "content": f"You are {bot_identity}, a helpful and friendly Discord AI assistant."
             },
             {
                 "role": "user",
@@ -51,56 +40,75 @@ def ask_groq_ai(prompt: str) -> str:
     return chat_completion.choices[0].message.content
 
 # --------------------------------------------------
-# 3. Discord Events & Commands
+# 2. Render Dummy Health Check Web Server
 # --------------------------------------------------
-@bot.event
-async def on_ready():
-    print("--------------------------------------------------")
-    print(f"🟢 ACTIVE: {bot.user.name} is online and connected to Groq!")
-    print("--------------------------------------------------")
+async def handle_health_check(request):
+    """Satisfies Render's mandatory HTTP health check."""
+    return web.Response(text="Bots are online and healthy!")
 
-@bot.command(name="ask")
-async def ask_ai(ctx, *, prompt: str):
-    print(f"\n📩 Command received: '!ask {prompt}'")
-    async with ctx.typing():
-        try:
-            # Run blocking API call in an async thread to prevent Discord lag
-            response = await asyncio.to_thread(ask_groq_ai, prompt)
-            
-            if len(response) > 2000:
-                response = response[:1995] + "..."
-                
-            await ctx.reply(response)
-            print("✅ Response sent!")
-        except Exception as e:
-            print(f"❌ Error: {e}")
-            await ctx.reply(f"AI Error: {e}")
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', handle_health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', PORT)
+    await site.start()
 
-@bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
+# --------------------------------------------------
+# 3. Bot Factory Function
+# --------------------------------------------------
+def create_bot(bot_identity: str):
+    intents = discord.Intents.default()
+    intents.message_content = True
+    bot = commands.Bot(command_prefix="!", intents=intents, max_messages=None)
 
-    if bot.user.mentioned_in(message) and not message.mention_everyone:
-        clean_content = message.content.replace(f'<@{bot.user.id}>', '').strip()
-        print(f"\n💬 Mention received: '{clean_content}'")
-        
-        async with message.channel.typing():
+    @bot.command(name="ask")
+    async def ask_ai(ctx, *, prompt: str):
+        async with ctx.typing():
             try:
-                response = await asyncio.to_thread(ask_groq_ai, clean_content)
-                
+                response = await asyncio.to_thread(ask_groq_ai, prompt, bot_identity)
                 if len(response) > 2000:
                     response = response[:1995] + "..."
-                    
-                await message.reply(response)
-                print("✅ Response sent!")
+                await ctx.reply(response)
             except Exception as e:
-                print(f"❌ Error: {e}")
-                await message.reply(f"Error: {e}")
+                await ctx.reply(f"AI Error: {e}")
 
-    await bot.process_commands(message)
+    @bot.event
+    async def on_message(message):
+        if message.author == bot.user:
+            return
+
+        if bot.user.mentioned_in(message) and not message.mention_everyone:
+            clean_content = message.content.replace(f'<@{bot.user.id}>', '').strip()
+            async with message.channel.typing():
+                try:
+                    response = await asyncio.to_thread(ask_groq_ai, clean_content, bot_identity)
+                    if len(response) > 2000:
+                        response = response[:1995] + "..."
+                    await message.reply(response)
+                except Exception as e:
+                    await message.reply(f"Error: {e}")
+
+        await bot.process_commands(message)
+
+    return bot
+
+# Initialize Bot Instances
+nosniy_bot = create_bot("Nosniy")
+sensei_bot = create_bot("SenseiWarrior")
 
 # --------------------------------------------------
-# 4. Run Bot
+# 4. Concurrent Execution
 # --------------------------------------------------
-bot.run(DISCORD_TOKEN)
+async def main():
+    # Start internal web server alongside bots
+    await start_web_server()
+    
+    async with nosniy_bot, sensei_bot:
+        await asyncio.gather(
+            nosniy_bot.start(DISCORD_TOKEN),
+            sensei_bot.start(SG_TOKEN)
+        )
+
+if __name__ == "__main__":
+    asyncio.run(main())
