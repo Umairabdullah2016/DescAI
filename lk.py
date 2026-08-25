@@ -13,10 +13,11 @@ load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")  # Nosniy Token
 SG_TOKEN = os.getenv("SG_TOKEN")            # SenseiWarrior Token
+NA_TOKEN = os.getenv("NA_TOKEN")            # Neko Token
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 PORT = int(os.getenv("PORT", 8080))         # Default port for Render health checks
 
-if not DISCORD_TOKEN or not SG_TOKEN or not GROQ_API_KEY:
+if not DISCORD_TOKEN or not SG_TOKEN or not NA_TOKEN or not GROQ_API_KEY:
     exit(1)
 
 # Initialize Groq Client
@@ -44,7 +45,7 @@ def ask_groq_ai(prompt: str, bot_identity: str) -> str:
 # --------------------------------------------------
 async def handle_health_check(request):
     """Satisfies Render's mandatory HTTP health check."""
-    return web.Response(text="Bots are online and healthy!")
+    return web.Response(text="All 3 bots are online and healthy!")
 
 async def start_web_server():
     app = web.Application()
@@ -96,6 +97,7 @@ def create_bot(bot_identity: str):
 # Initialize Bot Instances
 nosniy_bot = create_bot("Nosniy")
 sensei_bot = create_bot("SenseiWarrior")
+neko_bot = create_bot("Neko")
 
 # --------------------------------------------------
 # 4. Concurrent Execution
@@ -104,10 +106,11 @@ async def main():
     # Start internal web server alongside bots
     await start_web_server()
     
-    async with nosniy_bot, sensei_bot:
+    async with nosniy_bot, sensei_bot, neko_bot:
         await asyncio.gather(
             nosniy_bot.start(DISCORD_TOKEN),
-            sensei_bot.start(SG_TOKEN)
+            sensei_bot.start(SG_TOKEN),
+            neko_bot.start(NA_TOKEN)
         )
 
 if __name__ == "__main__":
