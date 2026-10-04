@@ -40,7 +40,7 @@ def get_nikilis_response(user_prompt: str) -> str:
 
   try:
     completion = groq_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",  # Using Groq's active stable endpoint
+        model="openai/gpt-oss-120b",  # Using Groq's active stable endpoint
         messages=[
             {
                 "role": "system",
