@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import os
 import traceback
 from aiohttp import web
@@ -12,8 +13,13 @@ load_dotenv()
 DISCORD_TOKEN = os.environ.get("NA_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-# Initialize Groq Client
-groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+# Set a 15-second timeout on the Groq client to prevent infinite hangs
+groq_client = (
+    Groq(api_key=GROQ_API_KEY, timeout=15.0) if GROQ_API_KEY else None
+)
+
+# Dedicated thread pool for low-RAM background API calls
+executor = ThreadPoolExecutor(max_workers=2)
 
 # --- Low-RAM Discord Bot Configuration ---
 intents = discord.Intents.default()
@@ -34,7 +40,7 @@ def get_nikilis_response(user_prompt: str) -> str:
 
   try:
     completion = groq_client.chat.completions.create(
-        model="openai/gpt-oss-120b",  # Specify Groq's 120b model
+        model="llama-3.3-70b-versatile",  # Using Groq's active stable endpoint
         messages=[
             {
                 "role": "system",
@@ -47,9 +53,11 @@ def get_nikilis_response(user_prompt: str) -> str:
             },
             {"role": "user", "content": user_prompt},
         ],
-        max_tokens=100,
+        max_tokens=250,  # Increased to prevent mid-sentence cutoffs
+        temperature=0.7,
     )
-    return completion.choices[0].message.content
+    content = completion.choices[0].message.content
+    return content if content else "⚠️ **Error:** Received empty response from API."
   except Exception as e:
     error_msg = str(e) if str(e) else repr(e)
     return f"⚠️ **Groq API Error:** `{error_msg}`"
@@ -59,7 +67,7 @@ def get_nikilis_response(user_prompt: str) -> str:
 @bot.event
 async def on_ready():
   print(f"Logged in as {bot.user.name} (ID: {bot.user.id})")
-  print("Nikilis AI Discord Bot is online on Groq.")
+  print("Nikilis AI Discord Bot is online.")
 
 
 @bot.event
@@ -76,11 +84,22 @@ async def on_message(message):
       clean_content = "Hello!"
 
     async with message.channel.typing():
-      loop = asyncio.get_event_loop()
-      response = await loop.run_in_executor(
-          None, get_nikilis_response, clean_content
-      )
-      await message.reply(response)
+      try:
+        # Enforce a 20-second hard limit on the async execution
+        loop = asyncio.get_running_loop()
+        response = await asyncio.wait_for(
+            loop.run_in_executor(
+                executor, get_nikilis_response, clean_content
+            ),
+            timeout=20.0,
+        )
+        await message.reply(response)
+      except asyncio.TimeoutError:
+        await message.reply(
+            "⚠️ **Timeout Error:** The API request took too long to respond."
+        )
+      except Exception as e:
+        await message.reply(f"⚠️ **Execution Error:** `{e}`")
 
   await bot.process_commands(message)
 
