@@ -27,11 +27,14 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # --- Groq AI Query Handler ---
 def get_nikilis_response(user_prompt: str) -> str:
   if not groq_client:
-    return "⚠️ **Error:** `GROQ_API_KEY` is missing from Render environment variables!"
+    return (
+        "⚠️ **Error:** `GROQ_API_KEY` is missing from Render environment"
+        " variables!"
+    )
 
   try:
     completion = groq_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="gpt-oss-120b",  # Specify Groq's 120b model
         messages=[
             {
                 "role": "system",
@@ -48,10 +51,7 @@ def get_nikilis_response(user_prompt: str) -> str:
     )
     return completion.choices[0].message.content
   except Exception as e:
-    # Send the raw exception straight to the output string
-    error_msg = str(e)
-    if not error_msg:
-      error_msg = repr(e)
+    error_msg = str(e) if str(e) else repr(e)
     return f"⚠️ **Groq API Error:** `{error_msg}`"
 
 
@@ -59,27 +59,23 @@ def get_nikilis_response(user_prompt: str) -> str:
 @bot.event
 async def on_ready():
   print(f"Logged in as {bot.user.name} (ID: {bot.user.id})")
-  print("Nikilis AI Discord Bot is online.")
+  print("Nikilis AI Discord Bot is online on Groq.")
 
 
 @bot.event
 async def on_message(message):
-  # Ignore messages sent by the bot itself
   if message.author == bot.user:
     return
 
-  # Respond if mentioned or if addressed directly in a DM
   if bot.user.mentioned_in(message) or isinstance(
       message.channel, discord.DMChannel
   ):
-    # Strip out the bot mention tag
     clean_content = message.content.replace(f'<@{bot.user.id}>', '').strip()
 
     if not clean_content:
       clean_content = "Hello!"
 
     async with message.channel.typing():
-      # Offload blocking API calls to prevent lagging the async event loop
       loop = asyncio.get_event_loop()
       response = await loop.run_in_executor(
           None, get_nikilis_response, clean_content
