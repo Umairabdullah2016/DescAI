@@ -34,7 +34,7 @@ def get_nikilis_response(user_prompt: str) -> str:
 
   try:
     completion = groq_client.chat.completions.create(
-        model="gpt-oss-120b",  # Specify Groq's 120b model
+        model="openai/gpt-oss-120b",  # Specify Groq's 120b model
         messages=[
             {
                 "role": "system",
