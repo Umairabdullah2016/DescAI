@@ -42,12 +42,11 @@ def get_ai_response(user_prompt: str, system_prompt: str) -> str:
     try:
         completion = groq_client.chat.completions.create(
             model="openai/gpt-oss-120b",
-            model="",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            max_tokens=250,
+            max_tokens=500,
             temperature=0.7,
         )
         content = completion.choices[0].message.content
